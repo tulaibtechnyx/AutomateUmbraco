@@ -6,9 +6,10 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const { url, jsonResult } = body;
-    
+    console.log("BE url", url);
+    console.log("BE jsonResult", jsonResult);
     if (!url || !jsonResult) {
-       return NextResponse.json({ error: "Missing url or jsonResult" }, { status: 400 });
+      return NextResponse.json({ error: "Missing url or jsonResult" }, { status: 400 });
     }
 
     // Proxy the request from the Next.js backend to bypass local self-signed SSL certificate issues
