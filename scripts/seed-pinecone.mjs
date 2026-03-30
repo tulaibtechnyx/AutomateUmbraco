@@ -67,6 +67,8 @@ async function runSeeder() {
                 model: 'text-embedding-ada-002',
                 input: `Umbraco Component Architecture:\nComponent Name: ${componentId}\nCode Implementation:\n${codeContent}`
             });
+            console.log('resp',response)
+            console.log(`🧠 Response for [${componentId}]:`, response.data?.[0]?.embedding);
 
             // The resulting 1536 vector coordinate integers
             const embeddingValues = response.data?.[0]?.embedding;
