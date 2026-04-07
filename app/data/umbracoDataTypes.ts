@@ -1,7 +1,7 @@
 export const umbracoDataTypes = [
   { label: 'Textstring', alias: 'Umbraco.TextBox', group: 'Common' },
   { label: 'Textarea', alias: 'Umbraco.TextArea', group: 'Common' },
-  { label: 'Rich Text Editor', alias: 'Umbraco.TinyMCE', group: 'Common' },
+  { label: 'Rich Text Editor', alias: 'Rich Text Editor', group: 'Common' },
   { label: 'Numeric', alias: 'Umbraco.Integer', group: 'Common' },
   { label: 'Decimal', alias: 'Umbraco.Decimal', group: 'Common' },
   { label: 'True/False', alias: 'Umbraco.TrueFalse', group: 'Common' },

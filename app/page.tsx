@@ -22,12 +22,37 @@ export default function UmbracoAutoPilot() {
     setLoading(true);
     setJsonResult(null);
     try {
+      // 1. Fetch relevant Umbraco examples from RAG backend
+      let ragContextText = "";
+      try {
+        const ragResponse = await fetch('/api/rag-context', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ html })
+        });
+        const ragData = await ragResponse.json();
+
+        if (ragData.success && ragData.matches?.length > 0) {
+          ragContextText = "Here are some similar Umbraco components from our project to use as examples/context:\n\n";
+          ragData.matches.forEach((match: any, index: number) => {
+            ragContextText += `--- Example ${index + 1} (Similarity Score: ${match.score}) ---\n${match.code}\n\n`;
+          });
+          console.log("RAG Context retrieved:", ragData.matches.length, "matches");
+        }
+      } catch (ragError) {
+        console.error("Failed to fetch RAG context, falling back to base instruction:", ragError);
+      }
+
+      // 2. Append the retrieved examples to the system prompt
+      const finalSystemInstruction = systemInstruction + "\n\nAnalyze the provided HTML and convert it into an Umbraco Block List JSON schema.\nMap the HTML elements to valid Umbraco-specific Data Types (e.g., 'Umbraco.TextBox', 'Umbraco.MediaPicker3', 'Rich Text Editor', 'Umbraco.MultiUrlPicker', 'Umbraco.BlockList').\n\nCRITICAL UMBRACO RAZOR ARCHITECTURE RULES:\n4. Links/CTAs: Always map individual links/buttons as 'Umbraco.MultiUrlPicker' (PrimaryCta, SecondaryCta). Check them using:\n   var hasPrimaryCta = Common.IsCtaNotNull(Model.PrimaryCta);\n   Render logic: <a href=\"@Model.PrimaryCta.Url\" target=\"@(Model.PrimaryCta.Target ?? \"_self\")\">@Model.PrimaryCta.Name</a>\n5. Rich Text (RTE): Map descriptions to 'Rich Text Editor'. Use this helper to render: \n   @Html.Raw(Model.Description.ReplacePTagFromRTE().ToString())" + (ragContextText ? "\n\n" + ragContextText : "");
+
+      // 3. Call the selected AI Model
       let resultText = "";
       if (provider === 'gemini') {
         const ai = new GoogleGenAI({ apiKey: process.env.NEXT_PUBLIC_GEMINI_KEY || '' });
         const response = await ai.models.generateContent({
           model: selectedModel,
-          contents: [{ role: 'user', parts: [{ text: systemInstruction + "\n\nHTML:\n" + html }] }],
+          contents: [{ role: 'user', parts: [{ text: finalSystemInstruction + "\n\nHTML:\n" + html }] }],
           config: { responseMimeType: 'application/json' }
         });
         resultText = response.candidates?.[0]?.content?.parts?.[0]?.text || "";
@@ -35,7 +60,7 @@ export default function UmbracoAutoPilot() {
         const openai = new OpenAI({ apiKey: process.env.NEXT_PUBLIC_OPENAI_KEY || '', dangerouslyAllowBrowser: true });
         const response = await openai.chat.completions.create({
           model: selectedModel,
-          messages: [{ role: "system", content: systemInstruction }, { role: "user", content: html }],
+          messages: [{ role: "system", content: finalSystemInstruction }, { role: "user", content: html }],
           response_format: { type: "json_object" }
         });
         resultText = response.choices[0].message.content || "";
