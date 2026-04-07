@@ -44,7 +44,35 @@ export default function UmbracoAutoPilot() {
       }
 
       // 2. Append the retrieved examples to the system prompt
-      const finalSystemInstruction = systemInstruction + "\n\nAnalyze the provided HTML and convert it into an Umbraco Block List JSON schema.\nMap the HTML elements to valid Umbraco-specific Data Types (e.g., 'Umbraco.TextBox', 'Umbraco.MediaPicker3', 'Rich Text Editor', 'Umbraco.MultiUrlPicker', 'Umbraco.BlockList').\n\nCRITICAL UMBRACO RAZOR ARCHITECTURE RULES:\n4. Links/CTAs: Always map individual links/buttons as 'Umbraco.MultiUrlPicker' (PrimaryCta, SecondaryCta). Check them using:\n   var hasPrimaryCta = Common.IsCtaNotNull(Model.PrimaryCta);\n   Render logic: <a href=\"@Model.PrimaryCta.Url\" target=\"@(Model.PrimaryCta.Target ?? \"_self\")\">@Model.PrimaryCta.Name</a>\n5. Rich Text (RTE): Map descriptions to 'Rich Text Editor'. Use this helper to render: \n   @Html.Raw(Model.Description.ReplacePTagFromRTE().ToString())" + (ragContextText ? "\n\n" + ragContextText : "");
+      const finalSystemInstruction = systemInstruction + `
+
+Analyze the provided HTML and convert it into an Umbraco Block List JSON schema.
+Map the HTML elements to valid Umbraco-specific Data Types (e.g., 'Umbraco.TextBox', 'Umbraco.MediaPicker3', 'Rich Text Editor', 'Umbraco.MultiUrlPicker', 'Umbraco.BlockList').
+
+CRITICAL UMBRACO RAZOR ARCHITECTURE RULES:
+1. Core Output: The root JSON must define the main Component (e.g. "alias": "featureInfoCards").
+2. Nested Types: If the HTML has a repeating nested structure (like cards or list items), you MUST create an Element Type for it by placing it in a "subModels" array on the root level! For example:
+   "subModels": [ { "alias": "infoCard", "name": "Info Card", "properties": [...] } ]
+   (Do NOT put the word "Model" in the alias. Just "infoCard". ModelsBuilder will handle the rest.)
+3. Links/CTAs: Always map individual links/buttons as 'Umbraco.MultiUrlPicker' (PrimaryCta, SecondaryCta). Check them using:
+   @{ var hasPrimaryCta = Common.IsCtaNotNull(Model.PrimaryCta); }
+   Render logic: <a href="@Model.PrimaryCta.Url" target="@(Model.PrimaryCta.Target ?? "_self")">@Model.PrimaryCta.Name</a>
+4. Rich Text (RTE): Map descriptions to 'Rich Text Editor'. Use this helper to render: 
+   @Html.Raw(Model.Description.ReplacePTagFromRTE().ToString())
+5. Razor Syntax loops and logic MUST be wrapped correctly:
+   Instead of just writing 'var items = Model.Cards...', you MUST use valid Razor:
+   @{
+       var items = Model.Cards?.ToList() ?? new List<Umbraco.Cms.Core.Models.Blocks.BlockListItem>();
+       foreach (var blockItem in items) {
+           var row = blockItem.Content as InfoCard;
+           // Render your HTML here using @row.CardTitle etc.
+       }
+   }
+6. STRICT CLASS NAMING: The @inherits directive MUST precisely match the root "alias" converted to PascalCase! 
+   Example: If the root alias is "featureInfoCards", then you MUST write:
+   @inherits Umbraco.Cms.Web.Common.Views.UmbracoViewPage<DMC.Common.Models.CMS.FeatureInfoCards>
+   Never invent random names like "FeatureCards" if the alias is "featureInfoCards".
+7. SUBMODELS: Always define repeating nested structures in the "subModels" array within the JSON output so they can be generated as separate Element Types.` + (ragContextText ? "\n\n" + ragContextText : "");
 
       // 3. Call the selected AI Model
       let resultText = "";
