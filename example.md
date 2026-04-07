@@ -1,3 +1,93 @@
+<!-- EXAMPLE 0 -->
+  <section class="sec-padded sec-resources featureInfoCards">
+        <div class="container">
+            <div class="secWrap">
+                <div class="contentWrap">
+                    <div class="secContentWrap" data-aos="fade-up">
+                        <p class="subTitle menu16">1% OF THE INDUSTRY</p>
+                        <h2 class="heading2"><u>Hub</u> for Media & Creativity</h2>
+                        <p class="body22">Dubai offers a media ecosystem where creativity and innovation thrive.</p>
+                    </div>                <div class="cardContainer">
+                        <div class="cardModule--resources" data-aos="fade-up" data-aos-delay="200">
+                            <div class="cardImg">
+                                <img src="../assets/images/thumbs/info-card-img.webp" alt="">
+                            </div>
+                            <div class="mainContent">
+                                <div class="cardTitle">
+                                    <h5 class="contentHeader">Execute vertical integration</h5>
+                                    <p class="body18 boxDescription">
+                                        Funnel stakeholder engagement yet and funnel stakeholder 
+                                    </p>
+                                </div>
+                                <div class="ctaBox">
+                                    <a href="javascript:;" class="primary-btn noTxt">
+                                      <img
+                                        src="../assets/images/svgs/arrow-right.svg"
+                                        alt=""
+                                        class="js-tosvg btn-icon"
+                                      />
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="cardModule--resources" data-aos="fade-up" data-aos-delay="200">
+                            <div class="cardImg">
+                                <img src="../assets/images/thumbs/info-card-img.webp" alt="">
+                            </div>
+                            <div class="mainContent">
+                                <div class="cardTitle">
+                                    <h5 class="contentHeader">Execute vertical integration</h5>
+                                    <p class="body18 boxDescription">
+                                        Funnel stakeholder engagement yet and funnel stakeholder 
+                                    </p>
+                                </div>
+                                <div class="ctaBox">
+                                    <a href="javascript:;" class="primary-btn noTxt">
+                                      <img
+                                        src="../assets/images/svgs/arrow-right.svg"
+                                        alt=""
+                                        class="js-tosvg btn-icon"
+                                      />
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="cardModule--resources" data-aos="fade-up" data-aos-delay="200">
+                            <div class="cardImg">
+                                <img src="../assets/images/thumbs/info-card-img.webp" alt="">
+                            </div>
+                            <div class="mainContent">
+                                <div class="cardTitle">
+                                    <h5 class="contentHeader">Execute vertical integration</h5>
+                                    <p class="body18 boxDescription">
+                                        Funnel stakeholder engagement yet and funnel stakeholder 
+                                    </p>
+                                </div>
+                                <div class="ctaBox">
+                                    <a href="javascript:;" class="primary-btn noTxt">
+                                      <img
+                                        src="../assets/images/svgs/arrow-right.svg"
+                                        alt=""
+                                        class="js-tosvg btn-icon"
+                                      />
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="btnWrap" data-aos="fade-up">
+                        <a href="javascript:;" class="primary-btn whiteBorder dark-bg">
+                            <span class="btn-text buttonText20 medium16">Explore More</span>
+                        </a>
+                        <a href="javascript:;" class="secondary-btn dark-bg">
+                            <span class="btn-text buttonText20 medium16">Explore More</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
 <!-- EXAMPLE 1 -->
 
 <!-- HTML Code -->
@@ -202,6 +292,7 @@ if (Model != null)
 {
 try
 {
+
 <section class="banner-wrapper sec-padded @(hasPrimaryCta || hasSecondaryCta ? "" : "without-ctas")">
 <div class="container">
 <div class="banner-box">
@@ -705,6 +796,7 @@ if (Model != null)
 {
 try
 {
+
 <div class="sec-padded">
 <div class="container">
 @if (hasHeading || hasDescription || hasCaption)

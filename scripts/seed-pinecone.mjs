@@ -1,4 +1,4 @@
-// node scripts/seed-pinecone.mjs scrip to run code
+// node scripts/seed-pinecone.mjs
 
 import fs from 'fs';
 import path from 'path';
@@ -7,7 +7,32 @@ import { Pinecone } from '@pinecone-database/pinecone';
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
 
-// 1. Resolve ENV File precisely from the script location
+// ─── Direct REST upsert ────────────────────────────────────────────────────
+// Bypasses the Pinecone SDK's upsert entirely to avoid the
+// "Must pass in at least 1 record" SDK validation bug seen in some versions.
+async function pineconeUpsertRaw(host, apiKey, namespace, vectors) {
+    const url = `https://${host}/vectors/upsert`;
+    const body = JSON.stringify({ vectors, namespace });
+
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Api-Key': apiKey,
+            'Content-Type': 'application/json',
+            'X-Pinecone-API-Version': '2024-07'
+        },
+        body
+    });
+
+    if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Pinecone REST ${res.status}: ${errText}`);
+    }
+
+    return await res.json();
+}
+
+// ─── ENV Setup ────────────────────────────────────────────────────────────
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, '../.env.local') });
@@ -18,39 +43,65 @@ const OPENAI_API_KEY = process.env.NEXT_PUBLIC_OPENAI_KEY;
 
 if (!PINECONE_API_KEY || PINECONE_API_KEY.includes('your_pinecone')) {
     console.error("❌ ERROR: Missing or invalid PINECONE_API_KEY in .env.local");
-    console.log("👉 Go to https://www.pinecone.io/ -> Create a free account -> Get an API Key.");
+    process.exit(1);
+}
+if (!OPENAI_API_KEY) {
+    console.error("❌ ERROR: Missing NEXT_PUBLIC_OPENAI_KEY in .env.local");
     process.exit(1);
 }
 
-// 2. Initialize Pinecone & OpenAI SDKs
+// ─── SDK clients (used only for describeIndex + embeddings) ───────────────
 const pc = new Pinecone({ apiKey: PINECONE_API_KEY });
-const ai = new OpenAI({ apiKey: OPENAI_API_KEY || '' });
+const ai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
 async function runSeeder() {
     console.log("🚀 Starting Vector Database Seeding Process...");
+    console.log(`📌 Target Pinecone Index: "${PINECONE_INDEX_NAME}"`);
 
-    // Connect to specific Pinecone Index
-    const index = pc.index(PINECONE_INDEX_NAME);
+    // ── 1. Verify index ──────────────────────────────────────────────────
+    let indexHost;
+    try {
+        const desc = await pc.describeIndex(PINECONE_INDEX_NAME);
+        console.log(`\n📊 Pinecone Index Info:`);
+        console.log(JSON.stringify(desc, null, 2));
 
-    // 3. Read Training Files directly from your live Umbraco repository
-    const dataDir = 'D:\\UMBRACO BE TECHNYX\\DMC_UMBRACO\\DMC.Web\\Views\\Partials\\Components';
+        if (desc?.dimension && desc.dimension !== 1536) {
+            console.error(`❌ DIMENSION MISMATCH: index=${desc.dimension}, embeddings=1536`);
+            console.error(`   Recreate the index with 1536 dimensions.`);
+            process.exit(1);
+        }
+
+        indexHost = desc?.host;
+        if (!indexHost) throw new Error("host field missing from describeIndex response");
+
+        console.log(`✅ Index verified — host: ${indexHost}\n`);
+    } catch (e) {
+        console.error(`❌ Could not access Pinecone index "${PINECONE_INDEX_NAME}": ${e.message}`);
+        process.exit(1);
+    }
+
+    // ── 2. Read component files ──────────────────────────────────────────
+    const dataDir = 'C:\\ModelTraining';
     if (!fs.existsSync(dataDir)) {
-        console.error(`❌ ERROR: Component folder not found at ${dataDir}!`);
+        console.error(`❌ Component folder not found: ${dataDir}`);
         return;
     }
 
-    const files = fs.readdirSync(dataDir).filter(f => f.endsWith('.cshtml') || f.endsWith('.md') || f.endsWith('.txt'));
+    const files = fs.readdirSync(dataDir).filter(f =>
+        f.endsWith('.cshtml') || f.endsWith('.md') || f.endsWith('.txt')
+    );
+
     if (files.length === 0) {
-        console.error("⚠️ WARNING: No acceptable code files found in /training-data folder.");
+        console.error("⚠️ No .cshtml / .md / .txt files found.");
         return;
     }
 
-    console.log(`📂 Found ${files.length} training components. Generating Vector Embeddings...`);
+    console.log(`📂 Found ${files.length} training components. Generating embeddings...\n`);
 
+    // ── 3. Generate embeddings ───────────────────────────────────────────
     const vectorsToUpload = [];
-    let lastOpenAiError = null;
+    const failedFiles = [];
 
-    // 4. Transform Code -> Mathematical Vectors (Embeddings)
     for (const file of files) {
         if (file === "PLACE-YOUR-CSHTML-FILES-HERE.md") continue;
 
@@ -58,72 +109,119 @@ async function runSeeder() {
         const codeContent = fs.readFileSync(filePath, 'utf-8');
         const componentId = file.replace(/\.(cshtml|md|txt)$/i, '');
 
-        console.log(`🧠 Generating Vector for: [${componentId}]...`);
+        console.log(`🧠 Embedding: [${componentId}]...`);
 
         try {
-            // Embed the component using OpenAI's text-embedding-ada-002
-            // text-embedding-ada-002 defaults to 1536 dimensions! Make sure your Pinecone Index matches this!
             const response = await ai.embeddings.create({
                 model: 'text-embedding-ada-002',
                 input: `Umbraco Component Architecture:\nComponent Name: ${componentId}\nCode Implementation:\n${codeContent}`
             });
-            console.log('resp',response)
-            console.log(`🧠 Response for [${componentId}]:`, response.data?.[0]?.embedding);
 
-            // The resulting 1536 vector coordinate integers
             const embeddingValues = response.data?.[0]?.embedding;
-            if (!embeddingValues) throw new Error("No values returned by embeddings.");
+            if (!embeddingValues || embeddingValues.length === 0) {
+                throw new Error("OpenAI returned empty embedding.");
+            }
+            if (embeddingValues.length !== 1536) {
+                throw new Error(`Wrong dims: ${embeddingValues.length}`);
+            }
 
-            // Ensure code doesn't exceed Pinecone's 40KB metadata limit (which causes silent list clearing in the SDK!)
-            const truncatedCode = codeContent.length > 30000 ? codeContent.substring(0, 30000) + "...[truncated]" : codeContent;
+            // Safe metadata — stay well under 40KB Pinecone limit
+            let code = codeContent;
+            if (Buffer.byteLength(JSON.stringify({ fileName: file, code }), 'utf8') > 35000) {
+                code = codeContent.substring(0, 18000) + "\n...[truncated]";
+                console.warn(`   ⚠️ [${componentId}] truncated to fit metadata limit`);
+            }
 
+            // Build a plain object with a plain number array — no typed arrays
             vectorsToUpload.push({
                 id: componentId,
-                values: embeddingValues,
-                metadata: {
-                    fileName: file,
-                    // Injecting raw code so we can actively recall it verbatim in the final Search Query phase!
-                    code: truncatedCode
-                }
+                values: Array.from(embeddingValues),   // plain JS Array, not Float32Array
+                metadata: { fileName: file, code }
             });
-        } catch (embeddingError) {
-            lastOpenAiError = embeddingError.message;
-            console.error(`❌ FAILED generating embedding for ${file}:`, embeddingError.message);
+
+            console.log(`   ✅ [${componentId}] — ${embeddingValues.length} dims`);
+
+        } catch (err) {
+            failedFiles.push(file);
+            console.error(`   ❌ FAILED [${file}]: ${err.message}`);
         }
     }
 
+    console.log(`\n${'─'.repeat(45)}`);
+    console.log(`📊 Embedding phase: ✅ ${vectorsToUpload.length} OK  ❌ ${failedFiles.length} failed`);
+    if (failedFiles.length) console.log(`   Failed: ${failedFiles.join(', ')}`);
+    console.log(`${'─'.repeat(45)}\n`);
+
     if (vectorsToUpload.length === 0) {
-        console.error("\n=======================================================");
-        console.error("🛑 CRITICAL UPLOAD HALTED: 0 files were successfully embedded.");
-        console.error("=======================================================");
-        console.error("This is an OPENAI ISSUE, not a Pinecone issue.");
-        console.error(`Your script attempted to read ${files.length} files but OpenAI rejected every single request.`);
-        if (!OPENAI_API_KEY) {
-            console.error("👉 REASON: You forgot to put NEXT_PUBLIC_OPENAI_KEY in your .env.local!");
-        } else {
-            console.error("👉 REASON: OpenAI rejected your API Key. Check the following:");
-            console.error("     1. Do you actually have paid credits loaded on platform.openai.com? (Free tiers often block embedding APIs).");
-            console.error("     2. Is your API key copy-pasted correctly in .env.local?");
-            console.error(`\n🔎 LAST OPENAI ERROR TRACE:\n   "${lastOpenAiError}"`);
-        }
+        console.error("🛑 Nothing to upload. Exiting.");
         process.exit(1);
     }
 
-    // 5. Upload precisely computed Vectors into our live Pinecone Vector Index in batches
-    console.log(`📡 Sending ${vectorsToUpload.length} specific Vectors into Pinecone Index: '${PINECONE_INDEX_NAME}'`);
+    // ── 4. Upsert via direct REST API (bypasses SDK bug) ─────────────────
+    console.log(`📡 Uploading ${vectorsToUpload.length} vectors via Pinecone REST API...`);
+    console.log(`   Host:      ${indexHost}`);
+    console.log(`   Namespace: umbraco-components\n`);
 
-    try {
-        const batchSize = 10;
-        for (let i = 0; i < vectorsToUpload.length; i += batchSize) {
-            const batch = vectorsToUpload.slice(i, i + batchSize);
-            console.log(`   ⏳ Upserting batch ${i} to ${i + batch.length}...`);
-            await index.namespace('umbraco-components').upsert(batch);
+    let totalUploaded = 0;
+    let totalFailed = 0;
+    const batchSize = 10;
+
+    for (let i = 0; i < vectorsToUpload.length; i += batchSize) {
+        const batch = vectorsToUpload.slice(i, i + batchSize);
+        const batchNum = Math.floor(i / batchSize) + 1;
+        const batchIds = batch.map(v => v.id).join(', ');
+
+        console.log(`⏳ Batch ${batchNum}: [${batchIds}]`);
+
+        try {
+            const result = await pineconeUpsertRaw(
+                indexHost,
+                PINECONE_API_KEY,
+                'umbraco-components',
+                batch
+            );
+            totalUploaded += batch.length;
+            console.log(`   ✅ Batch ${batchNum} uploaded — response:`, JSON.stringify(result), '\n');
+
+        } catch (batchError) {
+            console.error(`   ❌ Batch ${batchNum} failed: ${batchError.message}`);
+            console.log(`   🔁 Retrying individually...\n`);
+
+            for (const vector of batch) {
+                try {
+                    const result = await pineconeUpsertRaw(
+                        indexHost,
+                        PINECONE_API_KEY,
+                        'umbraco-components',
+                        [vector]
+                    );
+                    totalUploaded += 1;
+                    console.log(`      ✅ [${vector.id}] OK — response:`, JSON.stringify(result));
+                } catch (singleError) {
+                    totalFailed += 1;
+                    console.error(`      ❌ [${vector.id}] FAILED: ${singleError.message}`);
+                    console.error(`         Metadata size: ${Buffer.byteLength(JSON.stringify(vector.metadata), 'utf8')} bytes`);
+                    console.error(`         Vector dims:   ${vector.values?.length}`);
+                }
+            }
+            console.log('');
         }
-        console.log("✅ SUCCESS! Vector Database seeded. Your Umbraco Bot now intrinsically understands your architecture.");
-    } catch (err) {
-        console.error("\n❌ UPLOAD FAILED! Read the error closely. Make sure your Pinecone Index exists and explicitly defines '1536' dimensions!" + err);
-        console.error(err.message);
     }
+
+    // ── 5. Final summary ─────────────────────────────────────────────────
+    console.log(`\n${'═'.repeat(45)}`);
+    console.log(`🏁 Seeding Complete!`);
+    console.log(`   ✅ Uploaded:           ${totalUploaded}`);
+    console.log(`   ❌ Upload failures:    ${totalFailed}`);
+    console.log(`   ⚠️  Embedding failures: ${failedFiles.length}`);
+
+    if (totalFailed === 0 && failedFiles.length === 0) {
+        console.log(`\n🎉 All ${totalUploaded} components seeded successfully!`);
+        console.log(`   Your Umbraco Bot now understands your full component architecture.`);
+    } else {
+        console.log(`\n⚠️  Some records failed — review the logs above.`);
+    }
+    console.log(`${'═'.repeat(45)}\n`);
 }
 
 runSeeder();
